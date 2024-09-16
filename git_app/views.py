@@ -63,6 +63,9 @@ llm = genai.GenerativeModel(
 
 
 
+def index(request):
+    return HttpResponse("<h2>Welcome to CodeAnalyst </h2>")
+
 # Function to load data from file
 def load_data(file_path):
     if not os.path.exists(file_path):
