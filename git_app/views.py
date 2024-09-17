@@ -32,6 +32,8 @@ from sib_api_v3_sdk.rest import ApiException
 
 import schedule
 
+from git_app.models import GitHubRepo, Report
+
 from .prompts import base_prompt
 
 load_dotenv()
@@ -64,7 +66,7 @@ llm = genai.GenerativeModel(
 
 
 def index(request):
-    return HttpResponse("<h2>Welcome to CodeAnalyst </h2>")
+    return render(request, '../templates/git_app/input_form.html')
 
 # Function to load data from file
 def load_data(file_path):
@@ -214,6 +216,43 @@ def traverse_and_copy(src_folder, output_file):
                     outfile.write(f"--- {file_path} ---\n")
                     outfile.write(infile.read())
                     outfile.write("\n\n")
+
+def detect_framework(project_dir):
+    FRAMEWORK_FILES = {
+        'Django': ['manage.py', 'settings.py', 'urls.py'],
+        'Flask': ['app.py'],
+        'React': ['package.json', 'src/App.js', 'public/index.html'],
+        'Vue.js': ['package.json', 'src/App.vue', 'vue.config.js'],
+        'Angular': ['package.json', 'angular.json', 'src/main.ts'],
+        'Express.js': ['app.js', 'package.json', 'server.js'],
+        'Ruby on Rails': ['Gemfile', 'config/routes.rb', 'db/migrate'],
+        'Laravel': ['artisan', 'composer.json', 'routes/web.php'],
+        'Symfony': ['composer.json', 'bin/console', 'config/services.yaml'],
+        'Spring Boot': ['pom.xml', 'src/main/resources/application.properties'],
+        'ASP.NET Core': ['Program.cs', 'Startup.cs', 'appsettings.json'],
+        'Gin': ['main.go', 'go.mod'],
+        'Echo': ['main.go', 'go.mod'],
+        'Next.js': ['package.json', 'pages', 'next.config.js'],
+        'Nuxt.js': ['package.json', 'pages', 'nuxt.config.js'],
+        'Bootstrap': ['index.html', 'package.json'],
+        'Tailwind CSS': ['tailwind.config.js', 'package.json'],
+        'Foundation': ['index.html', 'package.json'],
+        'React Native': ['package.json', 'App.js', 'android', 'ios'],
+        'Flutter': ['pubspec.yaml', 'lib', 'android', 'ios'],
+        'Qt': ['.pro', 'CMakeLists.txt'],
+        'Boost': ['CMakeLists.txt']
+    }
+
+    detected_frameworks = []
+
+    for framework, files in FRAMEWORK_FILES.items():
+        # Check if any of the framework-specific files exist
+        for file in files:
+            if os.path.exists(os.path.join(project_dir, file)):
+                detected_frameworks.append(framework)
+                break  # Found the framework, move to next
+
+    return detected_frameworks
                 
 # Function to check if the file is binary
 def is_binary(file_path):
@@ -260,11 +299,11 @@ def manage_prompt_size(prompt, context, max_tokens=1000000, chunk_size=900000):
 
 # Weekly Report View
 def get_weekly_report(request):
-    username = request.GET.get('username')
-    repo_name = request.GET.get('repo_name')
-    contributor = request.GET.get('contributor')
-    token = request.GET.get('token')
-    emails = request.GET.get('emails')
+    username = request.POST.get('username')
+    repo_name = request.POST.get('repo_name')
+    contributor = request.POST.get('contributor')
+    token = request.POST.get('token')
+    emails = request.POST.get('emails')
 
     params = {
         'username': username,
@@ -281,8 +320,11 @@ def get_weekly_report(request):
     
     dest_folder = f"repositories/{username}/{repo_name}"
     clone_repo_and_get_commits(repo_url, dest_folder)
+    frameworks = detect_framework(dest_folder)
     traverse_and_copy(dest_folder, 'weekly.txt')
-    prompt, report = analyze_repo(params, 'weekly.txt')
+    params['framework'] = ''.join(frameworks)
+    print(f"Framework: {''.join(frameworks)}")
+    prompt, response = analyze_repo(params, 'weekly.txt')
 
     try:
         user, created_user = User.objects.get_or_create(username=username)
@@ -301,13 +343,13 @@ def get_weekly_report(request):
             frequency='Weekly',
             user=user,
             prompt=prompt,
-            output=report
+            output=response
         )
         if created_report:
             report.save()
     except Exception as e:
         print(f"Error creating Repo or report: {e}")
-    print(f"New report created for project '{repo_name}': {report}")
+    print(f"New report created for project '{repo_name}': {response}")
 
     
     if not username or not repo_name:
@@ -320,11 +362,11 @@ def get_weekly_report(request):
         
         if emails is not None:
             send_brevo_mail(subject=f"{repo_name} : {str(last_week)[:10]} - {str(today)[:10]}", 
-                html_content=report, 
+                html_content=response, 
                 emails=emails)
             schedule.every().monday.at("01:00").do(send_brevo_mail, 
                         subject=f"{repo_name} : {str(last_week)[:10]} - {str(today)[:10]}", 
-                        html_content=report, 
+                        html_content=response, 
                         to=emails)
 
             # Start a new thread for the scheduler
@@ -338,7 +380,7 @@ def get_weekly_report(request):
     except Exception as e:
         print(f"Error sending email: {e}")
         exit(1)
-    return JsonResponse({"status": "success", "report":report})
+    return JsonResponse({"status": "success", "report":response})
 
 # Function to run the schedule in a separate thread
 def run_scheduler():
@@ -356,6 +398,7 @@ def analyze_repo(params, output_file):
         contributor = params['contributor']
         token = params['token']
         emails = params['emails']
+        framework = params['framework']
 
         # Checkpoint Here
         data = load_data(output_file)

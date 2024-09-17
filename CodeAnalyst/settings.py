@@ -85,12 +85,25 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+if os.environ.get('DJANGO_ENV') == 'production':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME'),
+            'USER': os.environ.get('DB_USER'),
+            'PASSWORD': os.environ.get('DB_PASSWORD'),
+            'HOST': os.environ.get('DB_HOST'),
+            'PORT': os.environ.get('DB_PORT'),
+        }
+    }
+
 # Ensure all required environment variables are set for production
-# if os.environ.get('DJANGO_ENV') == 'production':
-#     if not all([os.environ.get('DB_NAME'), os.environ.get('DB_USER'), 
-#                 os.environ.get('DB_PASSWORD'), os.environ.get('DB_HOST'), 
-#                 os.environ.get('DB_PORT')]):
-#         raise ImproperlyConfigured("Database configuration environment variables are not set properly for production.")
+if os.environ.get('DJANGO_ENV') == 'production':
+    if not all([os.environ.get('DB_NAME'), os.environ.get('DB_USER'), 
+                os.environ.get('DB_PASSWORD'), os.environ.get('DB_HOST'), 
+                os.environ.get('DB_PORT')]):
+        raise ImproperlyConfigured("Database configuration environment variables are not set properly for production.")
 
 
 
